@@ -15,7 +15,12 @@ import struct
 class SimpleTCPServerHandler(SocketServer.BaseRequestHandler):
 
     def setup(self):
-        print "New connection from", self.client_address
+        if self.server._new_cb:
+            self.server._new_cb(self.client_address)
+
+    def finish(self):
+        if self.server._closed_cb:
+            self.server._closed_cb(self.client_address)
 
     def handle(self):
         while True:
@@ -35,7 +40,6 @@ class SimpleTCPServerHandler(SocketServer.BaseRequestHandler):
             if self.server._decompress_func:
                 data = self.server._decompress_func(data)
             self.server._call_back(self.client_address, data)
-        print "Client {0} went away".format(self.client_address)
 
     def read_all(self, length):
         remaining = length
@@ -53,7 +57,7 @@ class ThreadedTCPServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     daemon_threads = True
 
     def __init__(self, addr, handler, call_back, new_conn_cb, conn_closed_cb,
-                 decompress_func):
+                 err_back, decompress_func):
         SocketServer.TCPServer.__init__(self, addr, handler)
         self._call_back = call_back
         self._new_cb = new_conn_cb
@@ -95,14 +99,16 @@ class TCPSender(object):
                 raise Exception("Connection terminated")
             msg = msg[sent:]
 
-def create_server(listen_port, new_msg_cb, decompress_func=zlib.decompress):
+def create_server(listen_port, new_msg_cb, new_conn=None, conn_closed=None,
+                  err=None, decompress_func=zlib.decompress):
     """Creates and starts a server listening on port listen_port. When
     a new message is (fully) received, new_msg_cb will be called
     with the message
     """
     server = ThreadedTCPServer(('localhost', listen_port),
                                SimpleTCPServerHandler,
-                               new_msg_cb, None, None,decompress_func)
+                               new_msg_cb, new_conn, conn_closed, err,
+                               decompress_func)
     server_thread = threading.Thread(target=server.serve_forever)
     server_thread.setDaemon(True)
     server_thread.start()
