@@ -1,11 +1,11 @@
 """
 simpletcp is a small library that simplifies writing networking code.
 Meant for use to get a prototype up and running quickly. Definitely
-not production-level code (see something like Twisted).
+not production-level code nor are there any features (see something like Twisted).
 
 The library does the following:
   - Turns the TCP socket interface into one method call for client and server
-  - Handles basic network issues: short reads/writes, disconnects
+  - Handles basic network issues like short reads/writes, disconnects
   - Turns TCP into a message oriented stream rather than byte stream (adds
     length headers for you)
 
@@ -37,35 +37,38 @@ class SimpleTCPServerHandler(SocketServer.BaseRequestHandler):
         self._reason = CONNECTION_CLOSED
         while True:
             #read header for length
-            try:
-                length = struct.unpack("!i", self.read_all(4))[0]
-            except:
-                #client closed normally
+            ret_code, data = self.read_all(4)
+            if ret_code == 0 and not data:
                 break
-            try:
-                #read entire message
-                data = self.read_all(length)
-            except:
-                #client shouldn't have closed here. error handler
+            elif ret_code == 1:
                 self._reason = PROTOCOL_ERROR
                 break
-            #callback
+            length = struct.unpack("!i",data)[0]
+            #read entire message
+            ret_code, data = self.read_all(length)
+            if ret_code == 1:
+                self._reason = PROTOCOL_ERROR
+                break
             if self.server._decompress_func:
                 data = self.server._decompress_func(data)
             self.server._call_back(self.client_address, data)
 
     def read_all(self, length):
-        #TODO: don't do exception here. e.g. above
-        #client closing normally shouldn't be try/except
+        """Blocks until length bytes are read from the socket.
+        """
         remaining = length
         msg = ""
         while remaining > 0:
             read = self.request.recv(remaining)
-            if not read:
-                raise Exception("Connection terminated")
+            if not read and remaining == length:
+                #client closed the connection normally
+                return (0, "")
+            elif not read:
+                #error, connection closed while reading data
+                return (1, "")
             msg += read
             remaining -= len(read)
-        return msg
+        return (0, msg)
 
 class ThreadedTCPServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     allow_reuse_address = True
@@ -112,6 +115,9 @@ class TCPSender(object):
 
         Raises NoConnection if a connection cannot be established
         Raises ConnectionTerminated if an error occurred while writing the data
+
+        This object can still be used if an exception was raised. It will
+        try to re-establish a connection to the server if necessary. 
         """
         if not self._connected:
             self.try_connecting()
@@ -164,4 +170,3 @@ def create_client(dest_addr, port, compress_func=zlib.compress,
                   timeout=5):
     sender = TCPSender(dest_addr, port, compress_func, timeout)
     return sender
-
