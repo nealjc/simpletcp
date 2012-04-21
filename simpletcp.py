@@ -10,9 +10,13 @@ The library does the following:
     length headers for you)
 
 The server is a threaded TCP server (one thread per request) and everything
-is handled via callbacks (new clients, client messages, etc).
+is handled via callbacks (new clients, client messages, etc). User is
+responsible for synchronization in the callback methods if necessary. 
 
-The client blocking. 
+The client blocking.
+
+Only the create_server and create_client functions should be called directly.
+Code hasn't really been tested much yet. 
 """
 import SocketServer
 import socket
@@ -93,16 +97,17 @@ class TCPSender(object):
         timeout should be >= 1
         """
         self._compress_func = compress_func
-        self._socket = socket.socket(socket.AF_INET,
-                                     socket.SOCK_STREAM)
-        self._socket.settimeout(timeout)
+        self._timeout = timeout
         self._host = dest_addr
         self._port = int(port)
         self._timeout = timeout
         self._connected = False
 
-    def try_connecting(self):
+    def _try_connecting(self):
         try:
+            self._socket = socket.socket(socket.AF_INET,
+                                     socket.SOCK_STREAM)
+            self._socket.settimeout(self._timeout)
             self._socket.connect((self._host, self._port))
             self._connected = True
         except socket.error as e:
@@ -120,13 +125,13 @@ class TCPSender(object):
         try to re-establish a connection to the server if necessary. 
         """
         if not self._connected:
-            self.try_connecting()
+            self._try_connecting()
         if self._compress_func:
             msg = self._compress_func(msg)
         msg_len = len(msg)
         try:
-            self.write_all(struct.pack("!i", msg_len))
-            self.write_all(msg)
+            self._write_all(struct.pack("!i", msg_len))
+            self._write_all(msg)
         except Exception as e:
             self._connected = False
             raise ConnectionTerimated(
@@ -138,7 +143,7 @@ class TCPSender(object):
         """
         self._socket.close()
 
-    def write_all(self, msg):
+    def _write_all(self, msg):
         to_send = len(msg)
         sent = 0
         while True:
@@ -168,5 +173,10 @@ def create_server(listen_port, new_msg_cb, new_conn=None, conn_closed=None,
 
 def create_client(dest_addr, port, compress_func=zlib.compress,
                   timeout=5):
+    """Returns a blocking client object with methods send_msg() and close().
+    A connection with the server isn't established until the first send_msg()
+    call. If a send_msg() call fails, it can be called again and a new
+    connection will be attempted. 
+    """
     sender = TCPSender(dest_addr, port, compress_func, timeout)
     return sender
