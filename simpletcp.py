@@ -155,7 +155,7 @@ def create_server(listen_port, new_msg_cb, new_conn=None, conn_closed=None,
     a new message is (fully) received, new_msg_cb will be called
     with the message
     """
-    server = ThreadedTCPServer(('localhost', listen_port),
+    server = ThreadedTCPServer(('', listen_port),
                                SimpleTCPServerHandler,
                                new_msg_cb, new_conn, conn_closed,
                                decompress_func)
